@@ -1,0 +1,11 @@
+- package: nginx
+  version: "1.1.1"
+  source:
+  - type: registry
+    url: https://epr.elastic.co
+
+- package: nginx
+  version: "1.1.0"
+  source:
+  - type: download
+    url: https://epr.elastic.co/epr/nginx/nginx-1.1.0.zip
