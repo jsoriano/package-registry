@@ -6,6 +6,7 @@ package packages
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -178,13 +179,13 @@ func NewPackage(basePath string, fsBuilder FileSystemBuilder) (*Package, error) 
 		BasePath:  basePath,
 		fsBuilder: fsBuilder,
 	}
-	fs, err := p.fs()
+	packageFS, err := p.fs()
 	if err != nil {
 		return nil, err
 	}
-	defer fs.Close()
+	defer packageFS.Close()
 
-	manifestBody, err := ReadAll(fs, "manifest.yml")
+	manifestBody, err := fs.ReadFile(packageFS, "manifest.yml")
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +231,7 @@ func NewPackage(basePath string, fsBuilder FileSystemBuilder) (*Package, error) 
 
 		// Store policy template specific README
 		readmePath := filepath.Join("docs", p.PolicyTemplates[i].Name+".md")
-		readme, err := fs.Stat(readmePath)
+		readme, err := fs.Stat(packageFS, readmePath)
 		if err != nil {
 			if _, ok := err.(*os.PathError); !ok {
 				return nil, fmt.Errorf("failed to find %s file: %s", p.PolicyTemplates[i].Name+".md", err)
@@ -287,7 +288,7 @@ func NewPackage(basePath string, fsBuilder FileSystemBuilder) (*Package, error) 
 
 	readmePath := filepath.Join("docs", "README.md")
 	// Check if readme
-	readme, err := fs.Stat(readmePath)
+	readme, err := fs.Stat(packageFS, readmePath)
 	if err != nil {
 		return nil, fmt.Errorf("no readme file found, README.md is required: %s", err)
 	}
@@ -351,59 +352,38 @@ func (p *Package) IsNewerOrEqual(pp *Package) bool {
 // LoadAssets (re)loads all the assets of the package
 // Based on the time when this is called, it might be that not all assets for a package exist yet, so it is reset every time.
 func (p *Package) LoadAssets() (err error) {
-	fs, err := p.fs()
+	packageFS, err := p.fs()
 	if err != nil {
 		return err
 	}
-	defer fs.Close()
+	defer packageFS.Close()
 
 	// Reset Assets
 	p.Assets = nil
 
 	// Iterates recursively through all the levels to find assets
-	// If we need more complex matching a library like https://github.com/bmatcuk/doublestar
-	// could be used but the below works and is pretty simple.
-	assets, err := collectAssets(fs, "*")
-	if err != nil {
-		return err
-	}
-	for _, a := range assets {
-		// Unfortunately these files keep sneaking in
-		if strings.Contains(a, ".DS_Store") {
-			continue
-		}
-
-		info, err := fs.Stat(a)
+	err = fs.WalkDir(packageFS, ".", func(path string, info fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-
 		if info.IsDir() {
-			if strings.Contains(info.Name(), "-") {
-				return fmt.Errorf("directory name inside package %s contains -: %s", p.Name, a)
+			// Unfortunately these files keep sneaking in
+			if strings.Contains(path, ".DS_Store") {
+				return fs.SkipDir
 			}
-			continue
+
+			if strings.Contains(info.Name(), "-") {
+				return fmt.Errorf("directory name inside package %s contains -: %s", p.Name, info.Name())
+			}
+
+			return nil
 		}
 
-		a = path.Join(packagePathPrefix, p.GetPath(), a)
-		p.Assets = append(p.Assets, a)
-	}
-	return nil
-}
-
-func collectAssets(fs PackageFileSystem, pattern string) ([]string, error) {
-	assets, err := fs.Glob(pattern)
-	if err != nil {
-		return nil, err
-	}
-	if len(assets) != 0 {
-		a, err := collectAssets(fs, filepath.Join(pattern, "*"))
-		if err != nil {
-			return nil, err
-		}
-		return append(assets, a...), nil
-	}
-	return nil, nil
+		fullPath := filepath.Join(packagePathPrefix, p.GetPath(), path)
+		p.Assets = append(p.Assets, fullPath)
+		return nil
+	})
+	return err
 }
 
 func (p *Package) fs() (PackageFileSystem, error) {
@@ -449,21 +429,21 @@ func (p *Package) Validate() error {
 		}
 	}
 
-	fs, err := p.fs()
+	packageFS, err := p.fs()
 	if err != nil {
 		return err
 	}
-	defer fs.Close()
+	defer packageFS.Close()
 
 	for _, i := range p.Icons {
-		_, err := fs.Stat(i.Src)
+		_, err := fs.Stat(packageFS, i.Src)
 		if err != nil {
 			return err
 		}
 	}
 
 	for _, s := range p.Screenshots {
-		_, err := fs.Stat(s.Src)
+		_, err := fs.Stat(packageFS, s.Src)
 		if err != nil {
 			return err
 		}
@@ -499,26 +479,25 @@ func (p *Package) validateVersionConsistency() error {
 
 // GetDataStreamPaths returns a list with the dataStream paths inside this package
 func (p *Package) GetDataStreamPaths() ([]string, error) {
-	fs, err := p.fs()
+	packageFS, err := p.fs()
 	if err != nil {
 		return nil, err
 	}
-	defer fs.Close()
+	defer packageFS.Close()
 
 	dataStreamBasePath := "data_stream"
 
 	// Check if this package has dataStreams
-	_, err = fs.Stat(dataStreamBasePath)
 	// If no dataStreams exist, just return
+	_, err = fs.Stat(packageFS, dataStreamBasePath)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
-	// An other error happened, report it
 	if err != nil {
 		return nil, err
 	}
 
-	paths, err := fs.Glob(filepath.Join(dataStreamBasePath, "*"))
+	paths, err := fs.Glob(packageFS, filepath.Join(dataStreamBasePath, "*"))
 	if err != nil {
 		return nil, err
 	}
@@ -529,6 +508,7 @@ func (p *Package) GetDataStreamPaths() ([]string, error) {
 			return nil, fmt.Errorf("failed to get data stream path inside package (%s): %w", dataStreamBasePath, err)
 		}
 		paths[i] = relPath
+
 	}
 
 	return paths, nil

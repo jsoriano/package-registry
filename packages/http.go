@@ -5,6 +5,7 @@
 package packages
 
 import (
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -47,7 +48,7 @@ func ServeFile(w http.ResponseWriter, r *http.Request, p *Package, name string) 
 	span, _ := apm.StartSpan(r.Context(), "ServePackage", "app")
 	defer span.End()
 
-	fs, err := p.fs()
+	packageFS, err := p.fs()
 	if os.IsNotExist(err) {
 		http.Error(w, "resource not found", http.StatusNotFound)
 		return
@@ -58,18 +59,11 @@ func ServeFile(w http.ResponseWriter, r *http.Request, p *Package, name string) 
 		return
 	}
 
-	stat, err := fs.Stat(name)
+	f, err := packageFS.Open(name)
 	if os.IsNotExist(err) {
 		http.Error(w, "resource not found", http.StatusNotFound)
 		return
 	}
-	if err != nil {
-		log.Printf("stat failed for %s: %v", name, err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	f, err := fs.Open(name)
 	if err != nil {
 		log.Printf("failed to open file (%s) in package: %v", name, err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -77,7 +71,14 @@ func ServeFile(w http.ResponseWriter, r *http.Request, p *Package, name string) 
 	}
 	defer f.Close()
 
-	http.ServeContent(w, r, name, stat.ModTime(), f)
+	stat, err := f.Stat()
+	if err != nil {
+		log.Printf("stat failed for %s: %v", name, err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	http.ServeContent(w, r, name, stat.ModTime(), f.(io.ReadSeeker))
 }
 
 func ServeSignature(w http.ResponseWriter, r *http.Request, p *Package) {

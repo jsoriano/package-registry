@@ -7,6 +7,9 @@ package packages
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/fs"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,23 +114,25 @@ type fieldEntry struct {
 }
 
 func NewDataStream(basePath string, p *Package) (*DataStream, error) {
-	fs, err := p.fs()
+	packageFS, err := p.fs()
 	if err != nil {
 		return nil, err
 	}
-	defer fs.Close()
+	defer packageFS.Close()
 
 	manifestPath := filepath.Join(basePath, "manifest.yml")
 
 	// Check if manifest exists
-	_, err = fs.Stat(manifestPath)
-	if err != nil && os.IsNotExist(err) {
+	reader, err := packageFS.Open(manifestPath)
+	if os.IsNotExist(err) {
 		return nil, errors.Wrapf(err, "manifest does not exist for data stream: %s", p.BasePath)
 	}
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to open manifest: %s", manifestPath)
+	}
+	defer reader.Close()
 
-	dataStreamPath := filepath.Base(basePath)
-
-	b, err := ReadAll(fs, manifestPath)
+	b, err := ioutil.ReadAll(reader)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read manifest: %s", err)
 	}
@@ -136,6 +141,8 @@ func NewDataStream(basePath string, p *Package) (*DataStream, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "error creating new manifest config")
 	}
+
+	dataStreamPath := filepath.Base(basePath)
 	var d = &DataStream{
 		Package:    p.Name,
 		packageRef: p,
@@ -178,7 +185,7 @@ func NewDataStream(basePath string, p *Package) (*DataStream, error) {
 	}
 
 	pipelineDir := filepath.Join(d.BasePath, "elasticsearch", DirIngestPipeline)
-	paths, err := fs.Glob(filepath.Join(pipelineDir, "*"))
+	paths, err := fs.Glob(packageFS, filepath.Join(pipelineDir, "*"))
 	if err != nil {
 		return nil, err
 	}
@@ -222,49 +229,18 @@ func (d *DataStream) Validate() error {
 		return fmt.Errorf("type is not valid: %s", d.Type)
 	}
 
-	fs, err := d.packageRef.fs()
+	packageFS, err := d.packageRef.fs()
 	if err != nil {
 		return err
 	}
-	defer fs.Close()
+	defer packageFS.Close()
 
-	// In case an ingest pipeline is set, check if it is around
-	pipelineDir := filepath.Join(d.BasePath, "elasticsearch", DirIngestPipeline)
-	if d.IngestPipeline != "" {
-		var validFound bool
-
-		jsonPipelinePath := filepath.Join(pipelineDir, d.IngestPipeline+".json")
-		_, errJSON := fs.Stat(jsonPipelinePath)
-		if errJSON != nil && !os.IsNotExist(errJSON) {
-			return errors.Wrapf(errJSON, "stat ingest pipeline JSON file failed (path: %s)", jsonPipelinePath)
-		}
-		if !os.IsNotExist(errJSON) {
-			err := validateIngestPipelineFile(fs, jsonPipelinePath)
-			if err != nil {
-				return errors.Wrapf(err, "validating ingest pipeline JSON file failed (path: %s)", jsonPipelinePath)
-			}
-			validFound = true
-		}
-
-		yamlPipelinePath := filepath.Join(pipelineDir, d.IngestPipeline+".yml")
-		_, errYAML := fs.Stat(yamlPipelinePath)
-		if errYAML != nil && !os.IsNotExist(errYAML) {
-			return errors.Wrapf(errYAML, "stat ingest pipeline YAML file failed (path: %s)", jsonPipelinePath)
-		}
-		if !os.IsNotExist(errYAML) {
-			err := validateIngestPipelineFile(fs, yamlPipelinePath)
-			if err != nil {
-				return errors.Wrapf(err, "validating ingest pipeline YAML file failed (path: %s)", jsonPipelinePath)
-			}
-			validFound = true
-		}
-
-		if !validFound {
-			return fmt.Errorf("defined ingest_pipeline does not exist: %s", pipelineDir+d.IngestPipeline)
-		}
+	err = d.validateIngestPipeline(packageFS)
+	if err != nil {
+		return err
 	}
 
-	err = d.validateRequiredFields(fs)
+	err = d.validateRequiredFields(packageFS)
 	if err != nil {
 		return errors.Wrap(err, "validating required fields failed")
 	}
@@ -276,37 +252,65 @@ func (d *DataStream) validType() bool {
 	return exists
 }
 
-func validateIngestPipelineFile(fs PackageFileSystem, pipelinePath string) error {
-	f, err := ReadAll(fs, pipelinePath)
-	if err != nil {
-		return errors.Wrapf(err, "reading ingest pipeline file failed (path: %s)", pipelinePath)
+func (d *DataStream) validateIngestPipeline(packageFS fs.FS) error {
+	// In case an ingest pipeline is set, check if it is around.
+	pipelineDir := filepath.Join(d.BasePath, "elasticsearch", DirIngestPipeline)
+	if d.IngestPipeline == "" {
+		return nil
 	}
 
-	ext := filepath.Ext(pipelinePath)
+	extensions := []string{".json", ".yml"}
+	for _, extension := range extensions {
+		pipelinePath := filepath.Join(pipelineDir, d.IngestPipeline+extension)
+		reader, err := packageFS.Open(pipelinePath)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return errors.Wrapf(err, "opening ingest pipeline file failed (path: %s)", pipelinePath)
+		}
+		defer reader.Close()
+
+		err = validateIngestPipeline(reader, extension)
+		if err != nil {
+			return errors.Wrapf(err, "validating ingest pipeline file failed (path: %s)", pipelinePath)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("defined ingest_pipeline does not exist: %s", pipelineDir+d.IngestPipeline)
+}
+
+func validateIngestPipeline(reader io.Reader, extension string) error {
+	f, err := ioutil.ReadAll(reader)
+	if err != nil {
+		return errors.Wrapf(err, "reading ingest pipeline failed")
+	}
+
 	var m map[string]interface{}
-	switch ext {
+	switch extension {
 	case ".json":
 		err = json.Unmarshal(f, &m)
 	case ".yml":
 		err = yamlv2.Unmarshal(f, &m)
 	default:
-		return fmt.Errorf("unsupported pipeline extension (path: %s, ext: %s)", pipelinePath, ext)
+		return fmt.Errorf("unsupported pipeline extension (ext: %s)", extension)
 	}
 	return err
 }
 
 // validateRequiredFields method loads fields from all files and checks if required fields are present.
-func (d *DataStream) validateRequiredFields(fs PackageFileSystem) error {
+func (d *DataStream) validateRequiredFields(packageFS fs.FS) error {
 	fieldsDirPath := filepath.Join(d.BasePath, "fields")
 
 	// Collect fields from all files
-	fieldsFiles, err := fs.Glob(filepath.Join(fieldsDirPath, "*"))
+	fieldsFiles, err := fs.Glob(packageFS, filepath.Join(fieldsDirPath, "*"))
 	if err != nil {
 		return err
 	}
 	var allFields []util.MapStr
 	for _, path := range fieldsFiles {
-		body, err := ReadAll(fs, path)
+		body, err := fs.ReadFile(packageFS, path)
 		if err != nil {
 			return errors.Wrapf(err, "reading file failed (path: %s)", path)
 		}
