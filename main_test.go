@@ -14,6 +14,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -92,6 +93,56 @@ func TestEndpoints(t *testing.T) {
 			runEndpoint(t, test.endpoint, test.path, test.file, test.handler)
 		})
 	}
+}
+
+func FuzzSearchEndpoint(f *testing.F) {
+	packagesBasePaths := []string{"./testdata/package"}
+	indexer := packages.NewFileSystemIndexer(packagesBasePaths...)
+	handler := searchHandler(indexer, testCacheTime)
+
+	// package, category, all, experimental, prerelease
+	f.Add("", "", "", "", "")        // /search
+	f.Add("example", "", "", "", "") // /search?package=example
+	f.Add("foo", "", "", "", "")     // /search?package=example
+	f.Add("", "web", "", "", "")     // /search?category=web
+	f.Add("", "web", "true", "", "") // /search?category=web&all=true
+	f.Add("", "web", "", "true", "") // /search?category=web&experimental=true
+	f.Add("", "web", "", "", "true") // /search?category=web&prerelease=true
+	f.Add("", "", "", "true", "")    // /search?experimental=true
+	f.Add("", "", "", "", "true")    // /search?prerelease=true
+
+	f.Fuzz(func(t *testing.T, name string, category string, all string, experimental string, prerelease string) {
+		query := url.Values{}
+		if name != "" {
+			query.Add("package", name)
+		}
+		if category != "" {
+			query.Add("category", category)
+		}
+		if all != "" {
+			query.Add("all", all)
+		}
+		if experimental != "" {
+			query.Add("experimental", experimental)
+		}
+		if prerelease != "" {
+			query.Add("prerelease", prerelease)
+		}
+
+		endpoint := "/search"
+		if len(query) > 0 {
+			endpoint = endpoint + "?" + query.Encode()
+		}
+		t.Log(endpoint)
+
+		req, err := http.NewRequest("GET", endpoint, nil)
+		require.NoError(t, err)
+
+		recorder := httptest.NewRecorder()
+		handler(recorder, req)
+
+		assert.Less(t, recorder.Code, 500)
+	})
 }
 
 func TestArtifacts(t *testing.T) {
