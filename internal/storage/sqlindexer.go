@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
-	"github.com/Masterminds/semver/v3"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sixafter/semver"
 	"go.elastic.co/apm/v2"
 	"go.uber.org/zap"
 
@@ -332,16 +332,16 @@ func createDatabasePackage(pkg *packages.Package, cursor string) (*database.Pack
 		kibanaVersion = pkg.Conditions.Kibana.Version
 	}
 
-	pkgVersionSemver, err := semver.NewVersion(pkg.Version)
+	pkgVersionSemver, err := semver.Parse(pkg.Version)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create version from %q: %w", pkgVersionSemver, err)
 	}
 
-	formatVersionSemver, err := semver.NewVersion(pkg.FormatVersion)
+	formatVersionSemver, err := semver.Parse(pkg.FormatVersion)
 	if err != nil {
 		return nil, fmt.Errorf("invalid format version '%s' for package %s-%s: %w", pkg.FormatVersion, pkg.Name, pkg.Version, err)
 	}
-	formatVersionMajorMinor := fmt.Sprintf("%d.%d.0", formatVersionSemver.Major(), formatVersionSemver.Minor())
+	formatVersionMajorMinor := fmt.Sprintf("%d.%d.0", formatVersionSemver.Major, formatVersionSemver.Minor)
 
 	discoveryFields := ""
 	fieldNames := []string{}
@@ -366,14 +366,15 @@ func createDatabasePackage(pkg *packages.Package, cursor string) (*database.Pack
 		capabilities = strings.Join(pkg.Conditions.Elastic.Capabilities, ",")
 	}
 
+	_, prerelease, _ := strings.Cut(pkg.Version, "-")
 	newPackage := database.Package{
 		Cursor:                  cursor,
 		Name:                    pkg.Name,
 		Version:                 pkg.Version,
-		VersionMajor:            int(pkgVersionSemver.Major()),
-		VersionMinor:            int(pkgVersionSemver.Minor()),
-		VersionPatch:            int(pkgVersionSemver.Patch()),
-		VersionPrerelease:       pkgVersionSemver.Prerelease(),
+		VersionMajor:            int(pkgVersionSemver.Major),
+		VersionMinor:            int(pkgVersionSemver.Minor),
+		VersionPatch:            int(pkgVersionSemver.Patch),
+		VersionPrerelease:       prerelease,
 		DiscoveryFilterFields:   discoveryFields,
 		DiscoveryFilterDatasets: discoveryDatasets,
 		FormatVersion:           pkg.FormatVersion,

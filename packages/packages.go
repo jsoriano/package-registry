@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
+	"github.com/sixafter/semver"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"go.elastic.co/apm/v2"
@@ -69,10 +69,8 @@ func (ps Packages) index(p *Package) int {
 		if candidate.Name != p.Name {
 			continue
 		}
-		if cv, pv := candidate.versionSemVer, p.versionSemVer; cv != nil && pv != nil {
-			if !cv.Equal(pv) {
-				continue
-			}
+		if !candidate.versionSemVer.Equal(p.versionSemVer) {
+			continue
 		}
 		if candidate.Version != p.Version {
 			continue
@@ -126,7 +124,7 @@ func NewFileSystemIndexer(logger *zap.Logger, paths ...string) *FileSystemIndexe
 
 		if info.IsDir() {
 			versionDir := dirs[1]
-			_, err := semver.StrictNewVersion(versionDir)
+			_, err := semver.Parse(versionDir)
 			if err != nil {
 				logger.Warn("ignoring unexpected directory",
 					zap.String("file.path", path))
@@ -452,13 +450,13 @@ func (f *Filter) Apply(ctx context.Context, packages Packages) (Packages, error)
 		}
 
 		if f.KibanaVersion != nil {
-			if valid := p.HasKibanaVersion(f.KibanaVersion); !valid {
+			if valid := p.HasKibanaVersion(*f.KibanaVersion); !valid {
 				continue
 			}
 		}
 
 		if f.AgentVersion != nil {
-			if valid := p.HasAgentVersion(f.AgentVersion); !valid {
+			if valid := p.HasAgentVersion(*f.AgentVersion); !valid {
 				continue
 			}
 		}
@@ -542,7 +540,7 @@ func (f *Filter) legacyApply(ctx context.Context, packages Packages) Packages {
 		}
 
 		if f.KibanaVersion != nil {
-			if valid := p.HasKibanaVersion(f.KibanaVersion); !valid {
+			if valid := p.HasKibanaVersion(*f.KibanaVersion); !valid {
 				continue
 			}
 		}

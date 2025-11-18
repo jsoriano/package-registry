@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/hashicorp/golang-lru/v2/expirable"
+	"github.com/sixafter/semver"
 	"go.elastic.co/apm/module/apmzap/v2"
 	"go.elastic.co/apm/v2"
 	"go.uber.org/zap"
@@ -172,10 +172,11 @@ func newCategoriesFilterFromQuery(query url.Values, allowUnknownQueryParameters 
 		switch key {
 		case "kibana.version":
 			if v != "" {
-				filter.KibanaVersion, err = semver.NewVersion(v)
+				kibanaVersion, err := semver.Parse(v)
 				if err != nil {
 					return nil, fmt.Errorf("invalid Kibana version '%s': %w", v, err)
 				}
+				filter.KibanaVersion = &kibanaVersion
 			}
 		case "experimental":
 			// Deprecated: release tags to be removed
@@ -222,10 +223,11 @@ func newCategoriesFilterFromQuery(query url.Values, allowUnknownQueryParameters 
 			// This query parameter is allowed, but not used as a filter
 		case "agent.version":
 			if v != "" {
-				filter.AgentVersion, err = semver.NewVersion(v)
+				agentVersion, err := semver.Parse(v)
 				if err != nil {
 					return nil, fmt.Errorf("invalid agent version '%s': %w", v, err)
 				}
+				filter.AgentVersion = &agentVersion
 			}
 		default:
 			if !allowUnknownQueryParameters {

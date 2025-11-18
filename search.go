@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/hashicorp/golang-lru/v2/expirable"
+	"github.com/sixafter/semver"
 	"go.elastic.co/apm/module/apmzap/v2"
 	"go.elastic.co/apm/v2"
 	"go.uber.org/zap"
@@ -159,10 +159,11 @@ func newSearchFilterFromQuery(query url.Values, allowUnknownQueryParameters bool
 		switch key {
 		case "kibana.version":
 			if v != "" {
-				filter.KibanaVersion, err = semver.NewVersion(v)
+				kibanaVersion, err := semver.Parse(v)
 				if err != nil {
 					return nil, fmt.Errorf("invalid Kibana version '%s': %w", v, err)
 				}
+				filter.KibanaVersion = &kibanaVersion
 			}
 		case "category":
 			if v != "" {
@@ -229,10 +230,11 @@ func newSearchFilterFromQuery(query url.Values, allowUnknownQueryParameters bool
 			// Keep it here to avoid breaking existing clients.
 		case "agent.version":
 			if v != "" {
-				filter.AgentVersion, err = semver.NewVersion(v)
+				agentVersion, err := semver.Parse(v)
 				if err != nil {
 					return nil, fmt.Errorf("invalid agent version '%s': %w", v, err)
 				}
+				filter.AgentVersion = &agentVersion
 			}
 		default:
 			if !allowUnknownQueryParameters {
@@ -249,11 +251,11 @@ func getSpecVersion(version string) (*semver.Version, error) {
 	if len(strings.Split(version, ".")) != 2 {
 		return nil, fmt.Errorf("invalid version '%s': it should be <major.version>", version)
 	}
-	specVersion, err := semver.NewVersion(version)
+	specVersion, err := semver.Parse(version)
 	if err != nil {
 		return nil, fmt.Errorf("invalid spec version '%s': %w", version, err)
 	}
-	return specVersion, nil
+	return &specVersion, nil
 }
 
 func getSearchOutput(ctx context.Context, packageList packages.Packages) ([]byte, error) {

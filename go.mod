@@ -1,10 +1,9 @@
 module github.com/elastic/package-registry
 
-go 1.24.0
+go 1.25
 
 require (
 	cloud.google.com/go/storage v1.57.2
-	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/elastic/go-licenser v0.4.2
 	github.com/elastic/go-ucfg v0.8.8
 	github.com/felixge/httpsnoop v1.0.4
@@ -15,6 +14,7 @@ require (
 	github.com/joeshaw/multierror v0.0.0-20140124173710-69b34d4ec901
 	github.com/magefile/mage v1.15.0
 	github.com/prometheus/client_golang v1.23.2
+	github.com/sixafter/semver v1.10.3
 	github.com/stretchr/testify v1.11.1
 	go.elastic.co/apm/module/apmgorilla/v2 v2.7.1
 	go.elastic.co/apm/module/apmhttp/v2 v2.7.1
@@ -111,3 +111,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/sixafter/semver => /home/jaime/gocode/src/github.com/sixafter/semver

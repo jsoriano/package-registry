@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Masterminds/semver/v3"
+	"github.com/sixafter/semver"
 	"modernc.org/sqlite"
 )
 
@@ -43,26 +43,26 @@ func semverCompareConstraint(ctx *sqlite.FunctionContext, args []driver.Value) (
 		return true, nil
 	}
 
-	constraintSemver, err := semver.NewConstraint(constraint)
+	constraintSemver, err := semver.ParseRange(constraint)
 	if err != nil {
 		return nil, fmt.Errorf("invalid semver constraint: %w", err)
 	}
 
-	return constraintSemver.Check(version), nil
+	return constraintSemver.Contains(version), nil
 }
 
-func parseArgAsSemver(arg driver.Value) (*semver.Version, error) {
+func parseArgAsSemver(arg driver.Value) (semver.Version, error) {
 	version, ok := arg.(string)
 	if !ok {
-		return nil, fmt.Errorf("argument must be a string")
+		return semver.Version{}, fmt.Errorf("argument must be a string")
 	}
 
-	semver, err := semver.NewVersion(version)
+	parsed, err := semver.Parse(version)
 	if err != nil {
-		return nil, err
+		return semver.Version{}, err
 	}
 
-	return semver, nil
+	return parsed, nil
 }
 
 // semverCompareGreaterThanEqual checks if the first semantic version is greater than or equal to the second.
@@ -76,7 +76,7 @@ func semverCompareGreaterThanEqual(ctx *sqlite.FunctionContext, args []driver.Va
 		return nil, fmt.Errorf("failed to parse firstVersion: %w", err)
 	}
 
-	return firstVersion.GreaterThanEqual(secondVersion), nil
+	return firstVersion.GreaterThanOrEqual(secondVersion), nil
 }
 
 // semverCompareLessThanEqual checks if the first semantic version is less than or equal to the second.
@@ -90,7 +90,7 @@ func semverCompareLessThanEqual(ctx *sqlite.FunctionContext, args []driver.Value
 		return nil, fmt.Errorf("failed to parse firstVersion: %w", err)
 	}
 
-	return firstVersion.LessThanEqual(secondVersion), nil
+	return firstVersion.LessThanOrEqual(secondVersion), nil
 }
 
 // allCapabilitiesAreSupported checks if all the required capabilities (first array) are present in the second array (supported capabilities).

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/Masterminds/semver/v3"
+	"github.com/sixafter/semver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"

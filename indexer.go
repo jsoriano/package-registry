@@ -8,7 +8,7 @@ import (
 	"context"
 	"sort"
 
-	"github.com/Masterminds/semver/v3"
+	"github.com/sixafter/semver"
 
 	"github.com/elastic/package-registry/packages"
 )
@@ -89,9 +89,9 @@ func (p byNameVersion) Less(i, j int) bool {
 	}
 
 	// Newer versions first.
-	iSemVer, _ := semver.NewVersion(p[i].Version)
-	jSemVer, _ := semver.NewVersion(p[j].Version)
-	if iSemVer != nil && jSemVer != nil {
+	iSemVer, iErr := semver.Parse(p[i].Version)
+	jSemVer, jErr := semver.Parse(p[j].Version)
+	if iErr == nil && jErr == nil {
 		return jSemVer.LessThan(iSemVer)
 	}
 	return p[j].Version < p[i].Version

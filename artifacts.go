@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/gorilla/mux"
+	"github.com/sixafter/semver"
 	"go.elastic.co/apm/module/apmzap/v2"
 	"go.uber.org/zap"
 
@@ -75,7 +75,7 @@ func (h *artifactsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := semver.StrictNewVersion(packageVersion)
+	_, err := semver.Parse(packageVersion)
 	if err != nil {
 		badRequest(w, "invalid package version")
 		return

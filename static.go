@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/gorilla/mux"
+	"github.com/sixafter/semver"
 	"go.elastic.co/apm/module/apmzap/v2"
 	"go.uber.org/zap"
 
@@ -116,7 +116,7 @@ func staticParamsFromRequest(r *http.Request) (*staticParams, error) {
 		return nil, errors.New("missing package version")
 	}
 
-	_, err := semver.StrictNewVersion(packageVersion)
+	_, err := semver.Parse(packageVersion)
 	if err != nil {
 		return nil, errors.New("invalid package version")
 	}

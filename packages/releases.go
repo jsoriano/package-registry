@@ -5,7 +5,7 @@
 package packages
 
 import (
-	"github.com/Masterminds/semver/v3"
+	"github.com/sixafter/semver"
 )
 
 const (
@@ -32,7 +32,7 @@ func IsValidRelease(release string) bool {
 
 // releaseForSemVerCompat is a compatibility function that returns a release
 // for a given version.
-func releaseForSemVerCompat(version *semver.Version) string {
+func releaseForSemVerCompat(version semver.Version) string {
 	if isPrerelease(version) {
 		return DefaultPrerelease
 	}

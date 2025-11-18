@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Masterminds/semver/v3"
+	"github.com/sixafter/semver"
 	"go.uber.org/zap"
 
 	"github.com/elastic/go-ucfg"
@@ -52,9 +52,9 @@ type Package struct {
 	// Local path to the package dir
 	BasePath string `json:"-" yaml:"-"`
 
-	versionSemVer *semver.Version
+	versionSemVer semver.Version
 
-	specMajorMinorSemVer *semver.Version
+	specMajorMinorSemVer semver.Version
 
 	fsBuilder FileSystemBuilder
 	resolver  RemoteResolver
@@ -128,13 +128,13 @@ type Conditions struct {
 
 type AgentConditions struct {
 	Version    string `config:"version" json:"version" yaml:"version"`
-	constraint *semver.Constraints
+	constraint *semver.VersionRange
 }
 
 // KibanaConditions defines conditions for Kibana (e.g. required version).
 type KibanaConditions struct {
 	Version    string `config:"version" json:"version" yaml:"version"`
-	constraint *semver.Constraints
+	constraint *semver.VersionRange
 }
 
 // ElasticConditions defines conditions related to Elastic subscriptions or partnerships.
@@ -426,20 +426,20 @@ func newPackage(basePath string, fsBuilder FileSystemBuilder) (*Package, error) 
 func (p *Package) setRuntimeFields() error {
 	var err error
 
-	p.versionSemVer, err = semver.StrictNewVersion(p.Version)
+	p.versionSemVer, err = semver.Parse(p.Version)
 	if err != nil {
 		return fmt.Errorf("invalid package version: %w", err)
 	}
 
 	if p.Conditions != nil && p.Conditions.Kibana != nil {
-		p.Conditions.Kibana.constraint, err = semver.NewConstraint(p.Conditions.Kibana.Version)
+		p.Conditions.Kibana.constraint, err = semver.ParseRange(p.Conditions.Kibana.Version)
 		if err != nil {
 			return fmt.Errorf("invalid Kibana versions range %s: %w", p.Conditions.Kibana.Version, err)
 		}
 	}
 
 	if p.Conditions != nil && p.Conditions.Agent != nil {
-		p.Conditions.Agent.constraint, err = semver.NewConstraint(p.Conditions.Agent.Version)
+		p.Conditions.Agent.constraint, err = semver.ParseRange(p.Conditions.Agent.Version)
 		if err != nil {
 			return fmt.Errorf("invalid Agent versions range %s: %w", p.Conditions.Agent.Version, err)
 		}
@@ -450,14 +450,14 @@ func (p *Package) setRuntimeFields() error {
 		return nil
 	}
 
-	specSemVer, err := semver.StrictNewVersion(p.FormatVersion)
+	specSemVer, err := semver.Parse(p.FormatVersion)
 	if err != nil {
 		return fmt.Errorf("invalid format spec version '%s': %w", p.FormatVersion, err)
 	}
 
-	specMajorMinorVersion := fmt.Sprintf("%d.%d.0", specSemVer.Major(), specSemVer.Minor())
+	specMajorMinorVersion := fmt.Sprintf("%d.%d.0", specSemVer.Major, specSemVer.Minor)
 
-	p.specMajorMinorSemVer, err = semver.StrictNewVersion(specMajorMinorVersion)
+	p.specMajorMinorSemVer, err = semver.Parse(specMajorMinorVersion)
 	if err != nil {
 		return fmt.Errorf("invalid format spec version '%s': %w", specMajorMinorVersion, err)
 	}
@@ -529,22 +529,22 @@ func hasCategory(categories []string, category string) bool {
 	return false
 }
 
-func (p *Package) HasKibanaVersion(version *semver.Version) bool {
+func (p *Package) HasKibanaVersion(version semver.Version) bool {
 	// If the version is not specified, it is for all versions
-	if p.Conditions == nil || p.Conditions.Kibana == nil || p.Conditions.Kibana.constraint == nil || version == nil {
+	if p.Conditions == nil || p.Conditions.Kibana == nil || p.Conditions.Kibana.constraint == nil {
 		return true
 	}
 
-	return p.Conditions.Kibana.constraint.Check(version)
+	return p.Conditions.Kibana.constraint.Contains(version)
 }
 
-func (p *Package) HasAgentVersion(version *semver.Version) bool {
+func (p *Package) HasAgentVersion(version semver.Version) bool {
 	// If the version is not specified, it is for all versions
-	if p.Conditions == nil || p.Conditions.Agent == nil || p.Conditions.Agent.constraint == nil || version == nil {
+	if p.Conditions == nil || p.Conditions.Agent == nil || p.Conditions.Agent.constraint == nil {
 		return true
 	}
 
-	return p.Conditions.Agent.constraint.Check(version)
+	return p.Conditions.Agent.constraint.Contains(version)
 }
 
 func (p *Package) WorksWithCapabilities(capabilities []string) bool {
@@ -575,16 +575,16 @@ func (p *Package) HasCompatibleSpec(specMin, specMax, kibanaVersion *semver.Vers
 	}
 
 	fullConstraint := strings.Join(constraints, ",")
-	constraint, err := semver.NewConstraint(fullConstraint)
+	constraint, err := semver.ParseRange(fullConstraint)
 	if err != nil {
 		return false, fmt.Errorf("cannot create constraint %s: %w", fullConstraint, err)
 	}
 
-	if p.specMajorMinorSemVer == nil {
+	if p.specMajorMinorSemVer.Equal(semver.Version{}) {
 		return false, errors.New("package spec version is not set")
 	}
 
-	return constraint.Check(p.specMajorMinorSemVer), nil
+	return constraint.Contains(p.specMajorMinorSemVer), nil
 }
 
 func (p *Package) IsNewerOrEqual(pp *Package) bool {
@@ -595,11 +595,11 @@ func (p *Package) IsPrerelease() bool {
 	return isPrerelease(p.versionSemVer)
 }
 
-func isPrerelease(version *semver.Version) bool {
-	if version.Major() < 1 {
+func isPrerelease(version semver.Version) bool {
+	if version.Major < 1 {
 		return true
 	}
-	return version.Prerelease() != ""
+	return len(version.PreRelease) != 0
 }
 
 // LoadAssets (re)loads all the assets of the package
@@ -679,12 +679,12 @@ func (p *Package) Validate() error {
 		return fmt.Errorf("no format_version set: %v", p)
 	}
 
-	_, err := semver.StrictNewVersion(p.FormatVersion)
+	_, err := semver.Parse(p.FormatVersion)
 	if err != nil {
 		return fmt.Errorf("invalid package version: %s, %s", p.FormatVersion, err)
 	}
 
-	p.versionSemVer, err = semver.StrictNewVersion(p.Version)
+	p.versionSemVer, err = semver.Parse(p.Version)
 	if err != nil {
 		return err
 	}
@@ -730,13 +730,13 @@ func (p *Package) Validate() error {
 }
 
 func (p *Package) validateVersionConsistency() error {
-	versionPackage, err := semver.NewVersion(p.Version)
+	versionPackage, err := semver.Parse(p.Version)
 	if err != nil {
 		return fmt.Errorf("invalid version defined in manifest: %w", err)
 	}
 
 	baseDir := path.Base(p.BasePath)
-	versionDir, err := semver.NewVersion(baseDir)
+	versionDir, err := semver.Parse(baseDir)
 	if err != nil {
 		// TODO: There should be a flag passed to the registry to accept these kind of packages
 		// as otherwise these could hide some errors in the structure of the package-storage
